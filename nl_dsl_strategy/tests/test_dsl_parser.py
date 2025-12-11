@@ -1,6 +1,19 @@
 # tests/test_dsl_parser.py
 
-import pytest
+class _PytestCompat:
+    @staticmethod
+    def raises(expected_exception):
+        class _RaisesCtx:
+            def __enter__(self):
+                return None
+            def __exit__(self, exc_type, exc, tb):
+                if exc_type is None:
+                    # no exception was raised
+                    raise AssertionError(f"{expected_exception} not raised")
+                return issubclass(exc_type, expected_exception)
+        return _RaisesCtx()
+
+pytest = _PytestCompat()
 
 from src.dsl_lexer_parser import parse_dsl, DSLParseError
 from src.ast_nodes import Strategy, BinaryOp, SeriesRef, FuncCall

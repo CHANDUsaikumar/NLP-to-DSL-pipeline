@@ -1,8 +1,11 @@
 """
-AST → pandas signal generator.
+AST → pandas signal generation.
 
-Given a Strategy AST and a DataFrame with OHLCV data, generate
-boolean entry/exit signal series.
+This module takes a parsed Strategy AST and evaluates it over a pandas DataFrame
+containing OHLCV data, producing boolean entry/exit signal series.
+
+Main entry point:
+- generate_signals(strategy, df) -> DataFrame with 'entry' and 'exit' columns
 """
 
 from __future__ import annotations
@@ -11,140 +14,206 @@ from typing import Union
 
 import pandas as pd
 
-from .ast_nodes import Strategy, BinaryOp, UnaryOp, Literal, SeriesRef, FuncCall
-from . import indicators
+# Import with fallback for script execution
+try:
+    from .ast_nodes import (
+        ASTNode,
+        Strategy,
+        Literal,
+        SeriesRef,
+        FuncCall,
+        UnaryOp,
+        BinaryOp,
+    )
+    from .indicators import sma, rsi
+except ImportError:  # script mode
+    from ast_nodes import (  # type: ignore
+        ASTNode,
+        Strategy,
+        Literal,
+        SeriesRef,
+        FuncCall,
+        UnaryOp,
+        BinaryOp,
+    )
+    from indicators import sma, rsi  # type: ignore
 
 
-Value = Union[float, pd.Series]  # scalar or pandas Series
-
-
-def _eval_node(node, df: pd.DataFrame) -> Value:
+def eval_ast(node: ASTNode, df: pd.DataFrame) -> Union[pd.Series, float, bool]:
     """
-    Recursively evaluate an AST node into either:
-    - a pandas Series (for time series expressions), or
-    - a scalar float.
+    Evaluate an AST node over a pandas DataFrame.
+
+    Depending on the node, this can return:
+    - A scalar (float/bool) for literals
+    - A pandas Series for time-series expressions
+    - A boolean Series for boolean expressions/comparisons
+
+    Parameters
+    ----------
+    node : ASTNode
+        AST node to evaluate.
+    df : pd.DataFrame
+        Input OHLCV data. Must contain columns like 'open', 'high',
+        'low', 'close', 'volume'.
+
+    Returns
+    -------
+    Union[pd.Series, float, bool]
+        Result of the evaluation.
     """
-    # Binary operations
-    if isinstance(node, BinaryOp):
-        left = _eval_node(node.left, df)
-        right = _eval_node(node.right, df)
-        op = node.op.upper()
+    # ----- Leaf nodes -----
 
-        if op == "AND":
-            return left & right
-        if op == "OR":
-            return left | right
-
-        if op in {">", "<", ">=", "<=", "==", "!="}:
-            if op == ">":
-                return left > right
-            if op == "<":
-                return left < right
-            if op == ">=":
-                return left >= right
-            if op == "<=":
-                return left <= right
-            if op == "==":
-                return left == right
-            if op == "!=":
-                return left != right
-
-        if op in {"+", "-", "*", "/"}:
-            if op == "+":
-                return left + right
-            if op == "-":
-                return left - right
-            if op == "*":
-                return left * right
-            if op == "/":
-                return left / right
-
-        if op == "CROSSOVER":
-            # True when left crosses from <= right to > right
-            left_s = _to_series(left)
-            right_s = _to_series(right)
-            prev_left = left_s.shift(1)
-            prev_right = right_s.shift(1)
-            return (left_s > right_s) & (prev_left <= prev_right)
-
-        if op == "CROSSUNDER":
-            left_s = _to_series(left)
-            right_s = _to_series(right)
-            prev_left = left_s.shift(1)
-            prev_right = right_s.shift(1)
-            return (left_s < right_s) & (prev_left >= prev_right)
-
-        raise ValueError(f"Unsupported binary op: {node.op}")
-
-    # Unary operations
-    if isinstance(node, UnaryOp):
-        op = node.op.upper()
-        operand = _eval_node(node.operand, df)
-        if op == "NOT":
-            return ~_to_series(operand)
-        raise ValueError(f"Unsupported unary op: {node.op}")
-
-    # Literal
     if isinstance(node, Literal):
-        return float(node.value)
+        return node.value
 
-    # Series reference
     if isinstance(node, SeriesRef):
         series = df[node.name]
-        if node.lag:
+        if node.lag > 0:
             series = series.shift(node.lag)
         return series
 
-    # Function call (SMA, RSI, etc.)
     if isinstance(node, FuncCall):
         name = node.name.upper()
+        args = [eval_ast(arg, df) for arg in node.args]
 
         if name == "SMA":
-            if len(node.args) != 2:
-                raise ValueError("SMA expects two arguments: series, window")
-            series_val = _eval_node(node.args[0], df)
-            window_val = _eval_node(node.args[1], df)
-            window = int(window_val)
-            return indicators.sma(_to_series(series_val), window)
+            if len(args) != 2:
+                raise ValueError("SMA(series, window) expects 2 arguments")
+            series, window = args[0], int(args[1])
+            if not isinstance(series, pd.Series):
+                raise TypeError("SMA first argument must be a Series")
+            return sma(series, window)
 
         if name == "RSI":
-            if len(node.args) == 1:
-                series_val = _eval_node(node.args[0], df)
-                window = 14
-            elif len(node.args) == 2:
-                series_val = _eval_node(node.args[0], df)
-                window_val = _eval_node(node.args[1], df)
-                window = int(window_val)
-            else:
-                raise ValueError("RSI expects 1 or 2 arguments: (series[, window])")
-            return indicators.rsi(_to_series(series_val), window)
+            if len(args) != 2:
+                raise ValueError("RSI(series, window) expects 2 arguments")
+            series, window = args[0], int(args[1])
+            if not isinstance(series, pd.Series):
+                raise TypeError("RSI first argument must be a Series")
+            return rsi(series, window)
 
-        raise ValueError(f"Unsupported function: {node.name}")
+        raise ValueError(f"Unknown function: {name}")
 
-    raise TypeError(f"Unsupported AST node type: {type(node).__name__}")
+    # ----- Unary ops -----
+
+    if isinstance(node, UnaryOp):
+        operand = eval_ast(node.operand, df)
+        op = node.op.upper()
+
+        if op == "NOT":
+            # Expect boolean Series
+            if isinstance(operand, pd.Series):
+                return ~operand
+            return not bool(operand)
+
+        raise ValueError(f"Unknown unary op: {op}")
+
+    # ----- Binary ops -----
+
+    if isinstance(node, BinaryOp):
+        op = node.op.upper()
+
+        # Short-circuit AND/OR with Series support
+        if op in ("AND", "OR"):
+            left = eval_ast(node.left, df)
+            right = eval_ast(node.right, df)
+
+            if not isinstance(left, pd.Series) or not isinstance(right, pd.Series):
+                raise TypeError("AND/OR operands must be pandas Series")
+
+            if op == "AND":
+                return left & right
+            else:  # "OR"
+                return left | right
+
+        # Arithmetic or comparison or cross event
+        left = eval_ast(node.left, df)
+        right = eval_ast(node.right, df)
+
+        # Arithmetic operators
+        if op == "+":
+            return left + right
+        if op == "-":
+            return left - right
+        if op == "*":
+            return left * right
+        if op == "/":
+            return left / right
+
+        # Comparisons
+        if op in (">", "<", ">=", "<=", "==", "!="):
+            return _compare(left, right, op)
+
+        # Cross events: expect Series on both sides
+        if op == "CROSSOVER":
+            if not isinstance(left, pd.Series) or not isinstance(right, pd.Series):
+                raise TypeError("CROSSOVER operands must be pandas Series")
+            return (left > right) & (left.shift(1) <= right.shift(1))
+
+        if op == "CROSSUNDER":
+            if not isinstance(left, pd.Series) or not isinstance(right, pd.Series):
+                raise TypeError("CROSSUNDER operands must be pandas Series")
+            return (left < right) & (left.shift(1) >= right.shift(1))
+
+        raise ValueError(f"Unknown binary op: {op}")
+
+    raise ValueError(f"Unknown AST node type: {type(node)}")
 
 
-def _to_series(val: Value) -> pd.Series:
-    """Ensure the value is a pandas Series."""
-    if isinstance(val, pd.Series):
-        return val
-    # Broadcast scalar over a dummy index if ever needed
-    raise TypeError("Expected a pandas Series in this context")
+def _compare(left, right, op: str):
+    """
+    Helper for comparison operations.
+    Supports scalar/Series combinations via pandas broadcasting.
+    """
+    if op == ">":
+        return left > right
+    if op == "<":
+        return left < right
+    if op == ">=":
+        return left >= right
+    if op == "<=":
+        return left <= right
+    if op == "==":
+        return left == right
+    if op == "!=":
+        return left != right
+    raise ValueError(f"Unsupported comparison op: {op}")
 
 
 def generate_signals(strategy: Strategy, df: pd.DataFrame) -> pd.DataFrame:
     """
-    Generate entry and exit signal Series from a Strategy AST.
+    Generate entry and exit signals from a Strategy AST over a DataFrame.
 
-    Returns a DataFrame with boolean 'entry' and 'exit' columns.
+    Parameters
+    ----------
+    strategy : Strategy
+        Parsed and validated strategy AST.
+    df : pd.DataFrame
+        OHLCV data with index as dates and columns:
+        'open', 'high', 'low', 'close', 'volume'.
+
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame with boolean columns:
+        - 'entry': True where entry condition is satisfied.
+        - 'exit':  True where exit condition is satisfied.
     """
-    entry_raw = _eval_node(strategy.entry, df)
-    exit_raw = _eval_node(strategy.exit, df)
+    entry_raw = eval_ast(strategy.entry, df)
+    exit_raw = eval_ast(strategy.exit, df)
 
-    entry = _to_series(entry_raw).fillna(False).astype(bool)
-    exit_ = _to_series(exit_raw).fillna(False).astype(bool)
+    # Coerce scalars to Series if needed (rare, but for completeness)
+    if not isinstance(entry_raw, pd.Series):
+        entry_series = pd.Series([bool(entry_raw)] * len(df), index=df.index)
+    else:
+        entry_series = entry_raw.astype(bool)
+
+    if not isinstance(exit_raw, pd.Series):
+        exit_series = pd.Series([bool(exit_raw)] * len(df), index=df.index)
+    else:
+        exit_series = exit_raw.astype(bool)
 
     signals = pd.DataFrame(index=df.index)
-    signals["entry"] = entry
-    signals["exit"] = exit_
+    signals["entry"] = entry_series
+    signals["exit"] = exit_series
     return signals

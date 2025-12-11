@@ -1,18 +1,33 @@
+
 """
 DSL lexer and parser for the trading strategy language.
+
+This module supports both package and script import contexts by attempting
+relative imports first and falling back to absolute imports when needed.
 """
 
 import re
 from dataclasses import dataclass
 
-from .ast_nodes import (
-    Strategy,
-    BinaryOp,
-    UnaryOp,
-    Literal,
-    SeriesRef,
-    FuncCall,
-)
+# Import AST nodes with fallback for script execution
+try:  # package import
+    from .ast_nodes import (
+        Strategy,
+        BinaryOp,
+        UnaryOp,
+        Literal,
+        SeriesRef,
+        FuncCall,
+    )
+except ImportError:  # script import fallback
+    from ast_nodes import (  # type: ignore
+        Strategy,
+        BinaryOp,
+        UnaryOp,
+        Literal,
+        SeriesRef,
+        FuncCall,
+    )
 
 
 class DSLParseError(Exception):
