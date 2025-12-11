@@ -13,6 +13,21 @@ No external data is required; the demo uses synthetic OHLCV data so it runs offl
 
 This package converts simple natural language trading rules into a small DSL, parses the DSL into an AST, generates boolean signals over OHLCV data, and runs a minimal long-only backtest.
 
+## DSL Overview
+
+See `nl_dsl_strategy/dsl_spec.md` for the full grammar and examples.
+
+Highlights
+- Series: `open`, `high`, `low`, `close`, `volume`
+- Functions: `SMA`, `EMA`, `RSI`, `SHIFT`, `MACD`, `MACD_SIGNAL`, `MACD_HIST`, `BBANDS`, `BBUPPER`, `BBLOWER`, `CROSSOVER`, `CROSSUNDER`
+- Operators: arithmetic `+ - * /`, comparisons `> >= < <= == !=`, logic `AND OR NOT`
+- Precedence: `NOT` > `AND` > `OR` (use parentheses to group)
+- Literals: support `K` and `M` suffixes (e.g., `2K`, `1.5M`)
+
+Examples
+- `ENTRY: CROSSOVER(EMA(close, 20), EMA(close, 50)) AND RSI(close, 14) < 70`
+- `EXIT: CROSSUNDER(MACD(close, 12, 26, 9), MACD_SIGNAL(close, 12, 26, 9)) OR close > BBUPPER(close, 20, 2)`
+
 ## Quick Start
 
 ### Requirements
