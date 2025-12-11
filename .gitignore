@@ -1,0 +1,41 @@
+# Python ignores
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+.env
+.env.*
+.python-version
+
+# Packaging/build
+build/
+dist/
+.eggs/
+*.egg-info/
+*.egg
+
+# Caches and logs
+.cache/
+.pytest_cache/
+.hypothesis/
+*.log
+
+# Jupyter
+.ipynb_checkpoints/
+
+# IDE/editor
+.vscode/
+.idea/
+
+# macOS
+.DS_Store
+
+# Data (optional)
+*.csv
+*.parquet
+*.feather
+*.xlsx
