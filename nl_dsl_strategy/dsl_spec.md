@@ -1,60 +1,101 @@
-# DSL Specification
+# DSL Grammar and Examples
 
-A compact language for defining trading entry/exit rules on time-series data.
+This document concisely describes the trading DSL and provides examples. The DSL maps to an AST which is evaluated over OHLCV data to produce entry/exit signals.
 
-## Overview
+## Program Structure
 
-- Two clauses: `ENTRY:` and `EXIT:`; each is a boolean expression.
-- Supports comparisons, boolean operators, parentheses, and cross events.
-- Series fields: `open`, `high`, `low`, `close`, `volume` (optional lag via `.shift(N)` in codegen-level mapping).
+Strategies have two clauses:
+- ENTRY: <boolean-expression>
+- EXIT:  <boolean-expression>
 
-## Grammar (informal)
+Example skeleton:
+```
+ENTRY: <expr>
+EXIT:  <expr>
+```
 
-- Expr := Term (`AND` | `OR` Term)*
-- Term := Factor | `NOT` Term | `(` Expr `)` | Factor CompareOp Factor | Factor CrossOp Factor
-- CompareOp := `<` | `>` | `<=` | `>=` | `==` | `!=`
-- CrossOp := `CROSSOVER` | `CROSSUNDER`
-- Factor := IndicatorCall | SeriesRef | Number
-- IndicatorCall := NAME `(` args `)`
-- SeriesRef := `open` | `high` | `low` | `close` | `volume`
+## Lexical Elements
+
+- Identifiers: uppercase in DSL; series names are stored lowercase internally.
+- Literals: integers, floats, booleans `TRUE`/`FALSE`.
+- Numeric suffixes: `K` (×1,000), `M` (×1,000,000), e.g., `2K`, `1.5M`.
+- Parentheses: `(` `)` for grouping.
+- Brackets: `[` `]` for lag indexing on series (optional).
+
+## Series
+
+Available series (DataFrame columns): `open`, `high`, `low`, `close`, `volume`.
+
+Lag indexing (optional):
+- `CLOSE[5]` means close shifted by 5 bars.
+
+## Functions
+
+- Moving Averages: `SMA(series, period)`, `EMA(series, period)`
+- Momentum: `RSI(series, period)`, `SHIFT(series, bars)`
+- MACD family: `MACD(series, fast, slow, signal)`, `MACD_SIGNAL(series, fast, slow, signal)`, `MACD_HIST(series, fast, slow, signal)`
+- Bollinger Bands: `BBANDS(series, period, std)`, `BBUPPER(series, period, std)`, `BBLOWER(series, period, std)`
+- Events: `CROSSOVER(left, right)`, `CROSSUNDER(left, right)`
+
+Notes:
+- `MACD` returns the MACD line; use `MACD_SIGNAL` / `MACD_HIST` for signal and histogram.
+- `BBANDS` returns the middle band; use `BBUPPER` / `BBLOWER` for upper/lower.
+
+## Operators and Precedence
+
+- Arithmetic: `+`, `-`, `*`, `/`
+- Comparisons: `>`, `>=`, `<`, `<=`, `==`, `!=`
+- Logic: `AND`, `OR`, `NOT`
 
 Precedence (highest → lowest):
-1. Parentheses
-2. NOT
-3. AND
-4. OR
+1. NOT
+2. AND
+3. OR
 
-## Supported Indicators
-
-- `SMA(series, period)` — Simple moving average
-- `RSI(series, period)` — Relative Strength Index (default period 14)
+Arithmetic and comparisons are evaluated before logical operators. Use parentheses to override.
 
 ## Examples
 
-### Golden/death cross with RSI filter
-
+### 1) EMA crossover with RSI filter
 ```
-ENTRY: SMA(close, 50) CROSSOVER SMA(close, 200) AND RSI(close, 14) < 70
-EXIT:  SMA(close, 50) CROSSUNDER SMA(close, 200) OR RSI(close, 14) > 80
-```
-
-### Mean reversion on RSI
-
-```
-ENTRY: RSI(close, 14) < 30
-EXIT:  RSI(close, 14) > 50
+ENTRY: CROSSOVER(EMA(close, 20), EMA(close, 50)) AND RSI(close, 14) < 70
+EXIT:  FALSE
 ```
 
-### Price above fast SMA and volume threshold
+### 2) Bollinger breakout
+```
+ENTRY: close > BBUPPER(close, 20, 2)
+EXIT:  close < BBANDS(close, 20, 2)
+```
 
+### 3) MACD signal cross under
 ```
-ENTRY: close > SMA(close, 3) AND volume > 1000000
-EXIT:  RSI(close, 14) < 30
+ENTRY: CROSSUNDER(MACD(close, 12, 26, 9), MACD_SIGNAL(close, 12, 26, 9))
+EXIT:  FALSE
 ```
 
-### Crossover example (yesterday’s high)
+### 4) Volume filter with shift
+```
+ENTRY: volume > 1M AND SHIFT(close, 3) > 0
+EXIT:  FALSE
+```
 
+### 5) Parentheses and precedence
 ```
-ENTRY: close CROSSOVER high
-EXIT:  close < 0   # placeholder false expression when no exit clauses
+ENTRY: NOT (RSI(close, 14) > 70 AND close > SMA(close, 50)) OR volume > 2K
+EXIT:  FALSE
 ```
+
+## Error Reporting
+
+- Parser errors include line and column with a small snippet context.
+- Unknown series or functions may suggest closest valid names.
+
+## Validation
+
+- Series and function names are validated against centralized sets (`VALID_SERIES`, `VALID_FUNCS`).
+- Indicator arities are enforced (`ALLOWED_INDICATORS`). See `nl_dsl_strategy/src/validator.py`.
+
+## Design Intent
+
+The DSL favors correctness and clarity. It is compact, deterministic, and maps cleanly to an AST for evaluation over pandas.
