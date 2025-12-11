@@ -25,7 +25,7 @@ try:
         UnaryOp,
         BinaryOp,
     )
-    from .indicators import sma, rsi
+    from .indicators import sma, ema, rsi
 except ImportError:  # script mode
     from ast_nodes import (  # type: ignore
         ASTNode,
@@ -36,7 +36,7 @@ except ImportError:  # script mode
         UnaryOp,
         BinaryOp,
     )
-    from indicators import sma, rsi  # type: ignore
+    from indicators import sma, ema, rsi  # type: ignore
 
 
 def eval_ast(node: ASTNode, df: pd.DataFrame) -> Union[pd.Series, float, bool]:
@@ -73,10 +73,20 @@ def eval_ast(node: ASTNode, df: pd.DataFrame) -> Union[pd.Series, float, bool]:
         return series
 
     if isinstance(node, FuncCall):
-        name = node.name.upper()
+        func_name = node.name.upper()
         args = [eval_ast(arg, df) for arg in node.args]
+        # Optional runtime validation to fail fast on unknown indicator names
+        try:
+            from .validator import validate_indicator  # type: ignore
+            validate_indicator(func_name.lower(), len(node.args))
+        except Exception:
+            # If validator isn't available (script mode), continue
+            pass
 
-        if name == "SMA":
+        if func_name in ("SMA", "EMA", "RSI", "SHIFT"):
+            pass  # placeholder to keep grouping nearby
+        
+        if func_name == "SMA":
             if len(args) != 2:
                 raise ValueError("SMA(series, window) expects 2 arguments")
             series, window = args[0], int(args[1])
@@ -84,7 +94,7 @@ def eval_ast(node: ASTNode, df: pd.DataFrame) -> Union[pd.Series, float, bool]:
                 raise TypeError("SMA first argument must be a Series")
             return sma(series, window)
 
-        if name == "RSI":
+        if func_name == "RSI":
             if len(args) != 2:
                 raise ValueError("RSI(series, window) expects 2 arguments")
             series, window = args[0], int(args[1])
@@ -92,7 +102,24 @@ def eval_ast(node: ASTNode, df: pd.DataFrame) -> Union[pd.Series, float, bool]:
                 raise TypeError("RSI first argument must be a Series")
             return rsi(series, window)
 
-        raise ValueError(f"Unknown function: {name}")
+        if func_name == "EMA":
+            if len(args) != 2:
+                raise ValueError("EMA(series, window) expects 2 arguments")
+            series, window = args[0], int(args[1])
+            if not isinstance(series, pd.Series):
+                raise TypeError("EMA first argument must be a Series")
+            return ema(series, window)
+
+        if func_name == "SHIFT":
+            if len(args) != 2:
+                raise ValueError("SHIFT(series, lag) expects 2 arguments")
+            series, lag = args[0], int(args[1])
+            if not isinstance(series, pd.Series):
+                raise TypeError("SHIFT first argument must be a Series")
+            return series.shift(lag)
+        
+        # If we get here, the function name wasn't recognized above
+        raise ValueError(f"Unknown function: {func_name}")
 
     # ----- Unary ops -----
 

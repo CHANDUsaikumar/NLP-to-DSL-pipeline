@@ -43,6 +43,8 @@ class DSLParseError(Exception):
 
 TOKEN_SPEC = [
     ("NUMBER",   r'\d+(\.\d+)?'),
+    ("TRUE",     r'\bTRUE\b'),
+    ("FALSE",    r'\bFALSE\b'),
     ("IDENT",    r'[A-Za-z_][A-Za-z0-9_]*'),
     ("PERCENT",  r'%|percent'),
     ("DAY",      r'\bday\b'),
@@ -256,6 +258,14 @@ class Parser:
             self.advance()
             return Literal(value=float(tok.value))
 
+        if tok.type == "TRUE":
+            self.advance()
+            return Literal(value=1.0)
+
+        if tok.type == "FALSE":
+            self.advance()
+            return Literal(value=0.0)
+
         if tok.type == "IDENT":
             ident = tok.value
             self.advance()
@@ -308,7 +318,7 @@ class Parser:
 # ==============
 
 VALID_SERIES = {"open", "high", "low", "close", "volume"}
-VALID_FUNCS = {"SMA", "RSI"}
+VALID_FUNCS = {"SMA", "RSI", "SHIFT", "EMA"}
 
 
 def validate_strategy(strategy: Strategy):

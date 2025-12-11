@@ -3,6 +3,7 @@ Indicator implementations for the trading strategy engine.
 
 Currently supported:
 - SMA (Simple Moving Average)
+- EMA (Exponential Moving Average)
 - RSI (Relative Strength Index, Wilder-style)
 """
 
@@ -29,6 +30,25 @@ def sma(series: pd.Series, window: int) -> pd.Series:
         Rolling mean with the given window. The first (window-1) values are NaN.
     """
     return series.rolling(window=window, min_periods=window).mean()
+
+
+def ema(series: pd.Series, window: int) -> pd.Series:
+    """
+    Exponential Moving Average (EMA).
+
+    Parameters
+    ----------
+    series : pd.Series
+        Input price/volume series.
+    window : int
+        Lookback window length.
+
+    Returns
+    -------
+    pd.Series
+        EMA with adjust=False for standard trading usage.
+    """
+    return series.ewm(span=window, adjust=False).mean()
 
 
 def rsi(series: pd.Series, window: int = 14) -> pd.Series:

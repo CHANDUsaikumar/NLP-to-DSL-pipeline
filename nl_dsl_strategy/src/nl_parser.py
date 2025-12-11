@@ -230,6 +230,57 @@ def parse_natural_language_to_structured(nl_text: str) -> dict:
 
     return {"entry": structured_entry, "exit": structured_exit}
 
+
+def structured_to_dsl(structured: dict) -> str:
+    """
+    Convert structured JSON produced by parse_natural_language_to_structured into DSL text.
+
+    Handles:
+    - Indicators SMA/RSI
+    - CROSSOVER/CROSSUNDER via modifiers {cross: true}
+    - Percent and lag modifiers by expanding right-hand side with shift and scaling
+    - Fallback to a safely-false comparison when a side has no clauses
+    """
+
+    def fmt_side(side):
+        if isinstance(side, dict) and side.get("type") == "indicator":
+            name = str(side.get("name", "")).upper()
+            args = side.get("args", [])
+            if name == "SMA" and len(args) >= 2:
+                return f"SMA({args[0]}, {int(args[1])})"
+            if name == "RSI" and len(args) >= 2:
+                return f"RSI({args[0]}, {int(args[1])})"
+        return str(side)
+
+    def clause_to_dsl(cl):
+        left, op, right = cl.get("left"), cl.get("operator"), cl.get("right")
+        mods = cl.get("modifiers", {}) or {}
+
+        # CROSSOVER/CROSSUNDER mapping
+        if mods.get("cross"):
+            direction = "CROSSOVER" if (op is None or op == ">") else "CROSSUNDER"
+            return f"{fmt_side(left)} {direction} {fmt_side(right)}"
+
+        # Percent/lag mapping on right side
+        rhs = fmt_side(right)
+        lag = int(mods.get("lag", 0))
+        pct = float(mods.get("percent", 0.0))
+        if lag > 0:
+            rhs = f"SHIFT({rhs}, {lag})"
+        if pct:
+            rhs = f"{rhs} * {1.0 + pct}"
+
+        return f"{fmt_side(left)} {op} {rhs}"
+
+    def join_clauses(clauses):
+        if not clauses:
+            return "FALSE"  # to be supported by DSL parser
+        return " AND ".join(clause_to_dsl(c) for c in clauses)
+
+    entry = join_clauses(structured.get("entry", []))
+    exit_ = join_clauses(structured.get("exit", []))
+    return f"ENTRY: {entry}\nEXIT:  {exit_}"
+
 def extract_phrases_with_spacy(nl_text: str) -> dict:
     """
     Extract key phrases from natural language using spaCy when available.

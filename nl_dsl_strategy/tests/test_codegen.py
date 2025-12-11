@@ -53,3 +53,29 @@ def test_generate_signals_basic():
     assert signals["entry"].iloc[0] == False  # first row has no SMA
     # After second row, we may see some True's; just check that there are any True
     assert signals["entry"].any() or signals["exit"].any()
+
+
+def test_generate_signals_with_ema():
+    df = _build_small_df()
+
+    # Strategy using EMA: entry when close > EMA(close, 3), exit when close < EMA(close, 3)
+    dsl = """
+    ENTRY: close > EMA(close, 3)
+    EXIT:  close < EMA(close, 3)
+    """
+
+    strategy = parse_dsl(dsl)
+    signals = generate_signals(strategy, df)
+
+    # Signals DataFrame should have correct shape and columns
+    assert list(signals.columns) == ["entry", "exit"]
+    assert len(signals) == len(df)
+
+    # Types: boolean
+    assert signals["entry"].dtype == bool
+    assert signals["exit"].dtype == bool
+
+    # EMA(3) becomes defined from the 3rd row; first row should be False
+    assert signals["entry"].iloc[0] == False
+    # Ensure at least one signal appears by the end
+    assert signals["entry"].any() or signals["exit"].any()

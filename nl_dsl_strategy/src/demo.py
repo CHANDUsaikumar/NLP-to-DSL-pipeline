@@ -71,6 +71,43 @@ examples = [
 ]
 
 
+def _clause_to_dsl(cl):
+    left = cl.get("left")
+    op = cl.get("operator", ">")
+    right = cl.get("right")
+    mods = cl.get("modifiers", {}) or {}
+
+    def fmt_side(side):
+        if isinstance(side, dict) and side.get("type") == "indicator":
+            name = side.get("name", "").upper()
+            args = side.get("args", [])
+            if name == "SMA":
+                return f"SMA({args[0]}, {int(args[1])})"
+            if name == "RSI":
+                return f"RSI({args[0]}, {int(args[1])})"
+        if isinstance(side, str):
+            return side
+        return str(side)
+
+    # Handle crossover/crossunder via modifiers
+    if mods.get("cross"):
+        # assume CROSSOVER
+        return f"{fmt_side(left)} CROSSOVER {fmt_side(right)}"
+
+    # Percent/lag can be represented via arithmetic; keep simple for demo
+    return f"{fmt_side(left)} {op} {fmt_side(right)}"
+
+
+def structured_to_dsl_local(structured: dict) -> str:
+    entry_clauses = structured.get("entry", [])
+    exit_clauses = structured.get("exit", [])
+    # Use a safely-false comparison when there are no clauses, since DSL doesn't support literals
+    fallback_false = "close < 0"
+    entry = " AND ".join(_clause_to_dsl(c) for c in entry_clauses) if entry_clauses else fallback_false
+    exit_ = " AND ".join(_clause_to_dsl(c) for c in exit_clauses) if exit_clauses else fallback_false
+    return f"ENTRY: {entry}\nEXIT:  {exit_}"
+
+
 def build_example_df() -> pd.DataFrame:
     data = [
         ("2023-01-01", 100, 105, 99, 103, 900000),
@@ -105,9 +142,9 @@ def main():
 
     # 1) NL → structured JSON + DSL using nl_parser module directly
     try:
-        structured = nl_parser.parse_natural_language(nl_input)
+        structured = nl_parser.parse_natural_language_to_structured(nl_input)
         dsl_text = nl_parser.structured_to_dsl(structured)
-    except nl_parser.NLParseError as e:
+    except Exception as e:
         print("Error while parsing natural language:", e)
         return
 
@@ -161,7 +198,8 @@ def main():
         print()
 
         # NL -> Structured JSON, DSL
-        structured, dsl = nl_parser.nl_to_structured_and_dsl(nl)
+        structured = nl_parser.parse_natural_language_to_structured(nl)
+        dsl = nl_parser.structured_to_dsl(structured)
         print("Generated Structured JSON:")
         print(json.dumps(structured, indent=2))
         print()
@@ -180,7 +218,8 @@ def main():
             print("Parsed AST: ERROR")
             print(repr(e))
             print()
-            continue  # move to next example if parsing fails
+            # skip to next example
+            continue
 
         print()
 
@@ -192,6 +231,7 @@ def main():
             print("Backtest Result: ERROR")
             print(repr(e))
             print()
+            # skip to next example
             continue
 
         # Report
@@ -199,17 +239,19 @@ def main():
         total_ret = stats.get("total_return_pct", 0.0)
         mdd = stats.get("max_drawdown_pct", 0.0)
         ntrades = stats.get("num_trades", 0)
-        print(f"  Total Return: {total_ret:.4f} ({total_ret*100:.2f}%)")
-        print(f"  Max Drawdown: {mdd:.4f} ({mdd*100:.2f}%)")
+        print(f"  Total Return: {total_ret:.2f}%")
+        print(f"  Max Drawdown: {mdd:.2f}%")
         print(f"  Trades Count: {ntrades}")
         print()
 
         print("Entry/Exit Log:")
         if trades:
             for t in trades:
-                print(f"  Entry {t['entry_date']} @ {t['entry_price']:.2f}  "
-                      f"Exit {t['exit_date']} @ {t['exit_price']:.2f}  "
-                      f"PnL {t['pnl']:.2f}  Ret {t['return_pct']*100:.2f}%")
+                print(
+                    f"  Entry {t.entry_date} @ {t.entry_price:.2f}  "
+                    f"Exit {t.exit_date} @ {t.exit_price:.2f}  "
+                    f"PnL {t.pnl:.2f}  Ret {t.return_pct*100:.2f}%"
+                )
         else:
             print("  No trades executed.")
         print()

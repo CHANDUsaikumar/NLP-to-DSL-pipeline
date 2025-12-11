@@ -15,6 +15,7 @@ ALLOWED_INDICATORS: Dict[str, Tuple[int, ...]] = {
     "sma": (1, 2),
     "ema": (1, 2),
     "rsi": (1, 2),
+    "shift": (2,),
 }
 
 
