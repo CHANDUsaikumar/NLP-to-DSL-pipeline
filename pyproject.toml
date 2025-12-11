@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nl-dsl-strategy"
+version = "0.1.0"
+description = "NL → DSL trading strategy demo: parser, codegen, indicators, backtester, CLI"
+authors = [{ name = "Sai kumar chandu" }]
+readme = "nl_dsl_strategy/README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+keywords = ["trading", "dsl", "nlp", "backtest", "pandas"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+]
+
+dependencies = [
+  "pandas>=2.0",
+  "numpy>=1.23",
+]
+
+[project.urls]
+Homepage = "https://github.com/CHANDUsaikumar/NLP-to-DSL-pipeline"
+
+[tool.setuptools.packages.find]
+where = ["nl_dsl_strategy"]
+include = ["nl_dsl_strategy*"]
+
+[tool.setuptools]
+package-dir = {"nl_dsl_strategy" = "nl_dsl_strategy"}

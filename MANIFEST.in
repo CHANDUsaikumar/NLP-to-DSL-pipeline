@@ -1,0 +1,4 @@
+include nl_dsl_strategy/README.md
+include nl_dsl_strategy/dsl_spec.md
+recursive-include nl_dsl_strategy/src *.py
+recursive-include nl_dsl_strategy/tests *.py

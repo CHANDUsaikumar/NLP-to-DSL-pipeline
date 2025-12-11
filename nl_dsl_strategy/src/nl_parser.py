@@ -15,7 +15,7 @@ def normalize_text(text):
     return re.sub(r'\s+', ' ', text.strip().lower())
 
 
-def parse_natural_language(text):
+def parse_natural_language(text, backend: str = "regex"):
     """
     Parse a natural-language description of entry/exit rules into a structured JSON format.
 
@@ -25,6 +25,19 @@ def parse_natural_language(text):
             "exit":  [ ... ]
         }
     """
+    # If spaCy backend requested, try it first
+    if backend == "spacy":
+        try:
+            # Import lazily to avoid hard dependency when not used
+            from . import nlp_spacy  # type: ignore
+        except Exception:
+            nlp_spacy = None  # type: ignore
+        if nlp_spacy is not None:
+            structured = nlp_spacy.spacy_parse_nl(text)
+            if structured and (structured.get("entry") or structured.get("exit")):
+                return structured
+        # fall through to regex if spaCy fails
+
     text_norm = normalize_text(text)
 
     entry_clauses = []
