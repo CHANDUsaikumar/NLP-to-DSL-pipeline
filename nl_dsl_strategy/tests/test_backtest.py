@@ -1,8 +1,12 @@
 # tests/test_backtest.py
 
+import sys
+from pathlib import Path
 import pandas as pd
 
-from src.backtest import run_backtest
+# Ensure package path for tests when running from repo root
+sys.path.append(str(Path(__file__).resolve().parents[1] / 'nl_dsl_strategy' / 'src'))
+from backtest import run_backtest
 
 
 def test_backtest_single_trade():

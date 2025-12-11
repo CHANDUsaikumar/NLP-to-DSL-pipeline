@@ -214,6 +214,7 @@ def generate_signals(strategy: Strategy, df: pd.DataFrame) -> pd.DataFrame:
         exit_series = exit_raw.astype(bool)
 
     signals = pd.DataFrame(index=df.index)
-    signals["entry"] = entry_series
-    signals["exit"] = exit_series
+    # Ensure Python bools (not numpy.bool_) so tests using `is False/True` pass
+    signals["entry"] = entry_series.fillna(False).map(lambda x: bool(x))
+    signals["exit"] = exit_series.fillna(False).map(lambda x: bool(x))
     return signals

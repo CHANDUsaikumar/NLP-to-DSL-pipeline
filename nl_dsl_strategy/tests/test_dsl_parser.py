@@ -1,5 +1,8 @@
 # tests/test_dsl_parser.py
 
+import sys
+from pathlib import Path
+
 class _PytestCompat:
     @staticmethod
     def raises(expected_exception):
@@ -15,8 +18,10 @@ class _PytestCompat:
 
 pytest = _PytestCompat()
 
-from src.dsl_lexer_parser import parse_dsl, DSLParseError
-from src.ast_nodes import Strategy, BinaryOp, SeriesRef, FuncCall
+# Ensure package path
+sys.path.append(str(Path(__file__).resolve().parents[1] / 'nl_dsl_strategy' / 'src'))
+from dsl_lexer_parser import parse_dsl, DSLParseError
+from ast_nodes import Strategy, BinaryOp, SeriesRef, FuncCall
 
 
 def test_parse_simple_entry_exit():

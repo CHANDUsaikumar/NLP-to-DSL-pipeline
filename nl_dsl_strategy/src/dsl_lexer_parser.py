@@ -19,6 +19,7 @@ try:  # package import
         SeriesRef,
         FuncCall,
     )
+    from .validator import validate_field_name, validate_indicator
 except ImportError:  # script import fallback
     from ast_nodes import (  # type: ignore
         Strategy,
@@ -28,6 +29,7 @@ except ImportError:  # script import fallback
         SeriesRef,
         FuncCall,
     )
+    from validator import validate_field_name, validate_indicator  # type: ignore
 
 
 class DSLParseError(Exception):
@@ -42,6 +44,11 @@ class DSLParseError(Exception):
 TOKEN_SPEC = [
     ("NUMBER",   r'\d+(\.\d+)?'),
     ("IDENT",    r'[A-Za-z_][A-Za-z0-9_]*'),
+    ("PERCENT",  r'%|percent'),
+    ("DAY",      r'\bday\b'),
+    ("CROSS",    r'\bcross(?:es)?\b'),
+    ("ABOVE",    r'\babove\b'),
+    ("BELOW",    r'\bbelow\b'),
     ("GE",       r'>='),
     ("LE",       r'<='),
     ("EQ",       r'=='),
@@ -264,6 +271,11 @@ class Parser:
                         self.advance()
                         args.append(self.parse_bool_expr())
                 self.expect("RPAREN")
+                # Validate indicator name and arity (number of args)
+                try:
+                    validate_indicator(ident.lower(), len(args))
+                except ValueError as e:
+                    raise DSLParseError(str(e))
                 return FuncCall(name=ident, args=args)
 
             # series reference IDENT[NUMBER]?
@@ -275,7 +287,12 @@ class Parser:
                 self.expect("RBRACK")
 
             # store series names in lowercase to match DataFrame columns
-            return SeriesRef(name=ident.lower(), lag=lag)
+            series_name = ident.lower()
+            try:
+                validate_field_name(series_name)
+            except ValueError as e:
+                raise DSLParseError(str(e))
+            return SeriesRef(name=series_name, lag=lag)
 
         if tok.type == "LPAREN":
             self.advance()

@@ -15,6 +15,8 @@ from __future__ import annotations
 import os
 import sys
 import pandas as pd
+import json
+from dataclasses import is_dataclass, asdict
 
 # Resolve imports for both package and script execution modes
 if __package__ is None or __package__ == "":
@@ -43,6 +45,30 @@ else:
         from .dsl_lexer_parser import parse_dsl, DSLParseError
         from .codegen import generate_signals
         from .backtest import run_backtest
+
+
+# Robust imports whether run as module or script
+try:
+    from . import nl_parser, dsl_lexer_parser, codegen, backtest
+except Exception:
+    import nl_parser, dsl_lexer_parser, codegen, backtest  # type: ignore
+
+# Small embedded OHLCV sample (20 rows)
+dates = pd.date_range("2024-01-01", periods=20, freq="D")
+df = pd.DataFrame({
+    "open":  [100, 101, 102, 103, 104, 103, 102, 101, 100, 101, 102, 103, 104, 105, 104, 103, 102, 103, 104, 105],
+    "high":  [101, 102, 103, 104, 105, 104, 103, 102, 101, 102, 103, 104, 105, 106, 105, 104, 103, 104, 105, 106],
+    "low":   [99,  100, 101, 102, 103, 102, 101, 100, 99,  100, 101, 102, 103, 104, 103, 102, 101, 102, 103, 104],
+    "close": [100, 102, 101, 103, 104, 103, 102, 101, 100, 102, 103, 104, 105, 104, 103, 102, 101, 103, 104, 105],
+    "volume":[1000,1200,1100,1300,1250,1200,1150,1100,1050,1400,1500,1550,1600,1580,1570,1500,1450,1490,1520,1550],
+}, index=dates)
+
+examples = [
+    "Buy when the close price is above the 20-day moving average and volume is above 1 million.",
+    "Enter when price crosses above yesterday's high.",
+    "Exit when RSI(14) is below 30.",
+    "Trigger entry when volume increases by more than 30 percent compared to last week.",
+]
 
 
 def build_example_df() -> pd.DataFrame:
@@ -126,6 +152,67 @@ def main():
             f"Exit: {t.exit_date.date()} at {t.exit_price}, "
             f"PnL: {t.pnl:.2f} ({t.return_pct * 100:.2f}%)"
         )
+
+    for i, nl in enumerate(examples, 1):
+        print("=" * 80)
+        print(f"Example {i}")
+        print("Natural Language Input:")
+        print(nl)
+        print()
+
+        # NL -> Structured JSON, DSL
+        structured, dsl = nl_parser.nl_to_structured_and_dsl(nl)
+        print("Generated Structured JSON:")
+        print(json.dumps(structured, indent=2))
+        print()
+
+        print("Generated DSL:")
+        print(dsl)
+        print()
+
+        # DSL -> AST
+        try:
+            strategy = dsl_lexer_parser.parse_dsl(dsl)
+            ast_repr = asdict(strategy) if is_dataclass(strategy) else repr(strategy)
+            print("Parsed AST:")
+            print(ast_repr)
+        except Exception as e:
+            print("Parsed AST: ERROR")
+            print(repr(e))
+            print()
+            continue  # move to next example if parsing fails
+
+        print()
+
+        # AST -> Signals -> Backtest
+        try:
+            signals = codegen.generate_signals(strategy, df)
+            trades, stats = backtest.run_backtest(df, signals)
+        except Exception as e:
+            print("Backtest Result: ERROR")
+            print(repr(e))
+            print()
+            continue
+
+        # Report
+        print("Backtest Result:")
+        total_ret = stats.get("total_return_pct", 0.0)
+        mdd = stats.get("max_drawdown_pct", 0.0)
+        ntrades = stats.get("num_trades", 0)
+        print(f"  Total Return: {total_ret:.4f} ({total_ret*100:.2f}%)")
+        print(f"  Max Drawdown: {mdd:.4f} ({mdd*100:.2f}%)")
+        print(f"  Trades Count: {ntrades}")
+        print()
+
+        print("Entry/Exit Log:")
+        if trades:
+            for t in trades:
+                print(f"  Entry {t['entry_date']} @ {t['entry_price']:.2f}  "
+                      f"Exit {t['exit_date']} @ {t['exit_price']:.2f}  "
+                      f"PnL {t['pnl']:.2f}  Ret {t['return_pct']*100:.2f}%")
+        else:
+            print("  No trades executed.")
+        print()
 
 
 if __name__ == "__main__":

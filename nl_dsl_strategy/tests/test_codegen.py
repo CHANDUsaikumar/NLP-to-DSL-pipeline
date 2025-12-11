@@ -1,9 +1,13 @@
 # tests/test_codegen.py
 
+import sys
+from pathlib import Path
 import pandas as pd
 
-from src.dsl_lexer_parser import parse_dsl
-from src.codegen import generate_signals
+# Ensure package path
+sys.path.append(str(Path(__file__).resolve().parents[1] / 'nl_dsl_strategy' / 'src'))
+from dsl_lexer_parser import parse_dsl
+from codegen import generate_signals
 
 
 def _build_small_df() -> pd.DataFrame:
@@ -45,6 +49,7 @@ def test_generate_signals_basic():
 
     # There should be at least one non-NaN / True entry signal after enough data points
     # (since SMA(2) becomes defined from the 2nd row)
-    assert signals["entry"].iloc[0] is False  # first row has no SMA
+    # Use equality for boolean comparison; pandas may return numpy.bool_
+    assert signals["entry"].iloc[0] == False  # first row has no SMA
     # After second row, we may see some True's; just check that there are any True
     assert signals["entry"].any() or signals["exit"].any()
