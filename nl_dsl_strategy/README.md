@@ -9,34 +9,80 @@ This project demonstrates a simple pipeline:
 
 No external data is required; the demo uses synthetic OHLCV data so it runs offline.
 
-## Quick start
+# NL → DSL Strategy Pipeline
 
-Create a virtual environment (optional), install requirements, and run the demo:
+This package converts simple natural language trading rules into a small DSL, parses the DSL into an AST, generates boolean signals over OHLCV data, and runs a minimal long-only backtest.
+
+## Quick Start
+
+### Requirements
+- Python 3.9+
+- pandas, numpy, pytest
+- Optional: spaCy (`en_core_web_sm`)
+
+### Setup
+Create a virtual environment and install dependencies:
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
-python -m nl_dsl_strategy.src.demo
+pip install -r nl_dsl_strategy/requirements.txt
 ```
 
-You can pass a DSL string directly:
+### Run Demo
 
 ```bash
-python -m nl_dsl_strategy.src.demo --dsl "BUY WHEN SMA(close, 20) CROSSOVER SMA(close, 50); SELL WHEN SMA(close, 20) CROSSUNDER SMA(close, 50)"
+python nl_dsl_strategy/src/demo.py
 ```
 
-Or try a simple NL phrase:
+You’ll see:
+- NL input → structured JSON → DSL
+- DSL → AST types
+- Generated signals (head)
+- Backtest metrics (Total Return %, Max Drawdown %, Trades) and a trade log
+
+### Run Tests
 
 ```bash
-python -m nl_dsl_strategy.src.demo --nl "buy when 20 sma crosses above 50 sma and rsi below 70"
+pytest -q
 ```
 
-## DSL quick reference
+Tests cover:
+- NL parser structured mapping
+- DSL parsing, validation, and precedence
+- Codegen signal generation and types
+- Backtest lifecycle and metrics
 
-See `dsl_spec.md` for the informal grammar and examples.
+### Optional: spaCy NL support
+Install spaCy and the small English model to enable the optional NL parsing helper:
 
-## Notes
+```bash
+pip install spacy
+python -m spacy download en_core_web_sm
+```
 
-- The NL converter is intentionally minimal; it's just to make the demo end-to-end.
-- The backtester executes orders at the next bar's close to avoid lookahead.
+## Project Layout
+
+```
+nl_dsl_strategy/
+	src/
+		nl_parser.py            # NL → structured
+		dsl_lexer_parser.py     # DSL tokenizer/parser → AST
+		ast_nodes.py            # AST dataclasses
+		codegen.py              # AST → pandas signals
+		indicators.py           # SMA/RSI helpers
+		backtest.py             # run_backtest(df, signals)
+		demo.py                 # end-to-end demo
+	tests/
+		test_nl_parser.py
+		test_dsl_parser.py
+		test_codegen.py
+		test_backtest.py
+	dsl_spec.md               # DSL grammar reference + examples
+```
+
+## Usage Tips
+
+- The demo uses a small, embedded OHLCV DataFrame; swap in your CSV by replacing `build_example_df()` in `demo.py`.
+- If an entry or exit side has no clauses from NL, the demo emits a safe false comparison (`close < 0`) so the DSL stays parsable.
+- Percent/lag modifiers from NL are partially mapped; extend `structured_to_dsl` logic to emit expressions like `volume > volume.shift(5) * 1.3`.

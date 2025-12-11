@@ -2,36 +2,59 @@
 
 A compact language for defining trading entry/exit rules on time-series data.
 
+## Overview
+
+- Two clauses: `ENTRY:` and `EXIT:`; each is a boolean expression.
+- Supports comparisons, boolean operators, parentheses, and cross events.
+- Series fields: `open`, `high`, `low`, `close`, `volume` (optional lag via `.shift(N)` in codegen-level mapping).
+
 ## Grammar (informal)
 
-- Strategy: one or more rules separated by `;`
-- Rule: `BUY WHEN` Expr | `SELL WHEN` Expr
-- Expr: Term (`AND`|`OR` Term)*
-- Term: Factor (CompareOp Factor | CrossOp Factor)? | `NOT` Term | `(` Expr `)`
-- CompareOp: `<` | `>` | `<=` | `>=` | `==` | `!=`
-- CrossOp: `CROSSOVER` | `CROSSUNDER`
-- Factor: IndicatorCall | SeriesRef | Number
-- IndicatorCall: NAME `(` args `)`
-- SeriesRef: `open` | `high` | `low` | `close` | `volume`
+- Expr := Term (`AND` | `OR` Term)*
+- Term := Factor | `NOT` Term | `(` Expr `)` | Factor CompareOp Factor | Factor CrossOp Factor
+- CompareOp := `<` | `>` | `<=` | `>=` | `==` | `!=`
+- CrossOp := `CROSSOVER` | `CROSSUNDER`
+- Factor := IndicatorCall | SeriesRef | Number
+- IndicatorCall := NAME `(` args `)`
+- SeriesRef := `open` | `high` | `low` | `close` | `volume`
+
+Precedence (highest → lowest):
+1. Parentheses
+2. NOT
+3. AND
+4. OR
 
 ## Supported Indicators
 
 - `SMA(series, period)` — Simple moving average
-- `EMA(series, period)` — Exponential moving average
 - `RSI(series, period)` — Relative Strength Index (default period 14)
 
 ## Examples
 
-- Golden/death cross with RSI filter:
+### Golden/death cross with RSI filter
 
 ```
-BUY WHEN SMA(close, 50) CROSSOVER SMA(close, 200) AND RSI(close, 14) < 70;
-SELL WHEN SMA(close, 50) CROSSUNDER SMA(close, 200) OR RSI(close, 14) > 80
+ENTRY: SMA(close, 50) CROSSOVER SMA(close, 200) AND RSI(close, 14) < 70
+EXIT:  SMA(close, 50) CROSSUNDER SMA(close, 200) OR RSI(close, 14) > 80
 ```
 
-- Mean reversion on RSI:
+### Mean reversion on RSI
 
 ```
-BUY WHEN RSI(close, 14) < 30;
-SELL WHEN RSI(close, 14) > 50
+ENTRY: RSI(close, 14) < 30
+EXIT:  RSI(close, 14) > 50
+```
+
+### Price above fast SMA and volume threshold
+
+```
+ENTRY: close > SMA(close, 3) AND volume > 1000000
+EXIT:  RSI(close, 14) < 30
+```
+
+### Crossover example (yesterday’s high)
+
+```
+ENTRY: close CROSSOVER high
+EXIT:  close < 0   # placeholder false expression when no exit clauses
 ```
