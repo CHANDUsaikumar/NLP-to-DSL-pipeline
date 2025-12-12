@@ -79,3 +79,24 @@ def test_generate_signals_with_ema():
     assert signals["entry"].iloc[0] == False
     # Ensure at least one signal appears by the end
     assert signals["entry"].any() or signals["exit"].any()
+
+
+def test_generate_signals_macd_bbands_helpers():
+    df = _build_small_df()
+
+    # Use MACD line vs signal and BBUPPER/BBLOWER in pure DSL
+    dsl = """
+    ENTRY: MACD(close) > MACD_SIGNAL(close) AND close < BBUPPER(close, 20, 2)
+    EXIT:  MACD(close) < MACD_SIGNAL(close) OR close > BBLOWER(close, 20, 2)
+    """
+
+    strategy = parse_dsl(dsl)
+    signals = generate_signals(strategy, df)
+
+    assert list(signals.columns) == ["entry", "exit"]
+    assert len(signals) == len(df)
+    assert signals["entry"].dtype == bool
+    assert signals["exit"].dtype == bool
+    # Ensure evaluation completes and returns booleans; no guarantee of a signal in tiny sample
+    assert signals["entry"].isin([True, False]).all()
+    assert signals["exit"].isin([True, False]).all()

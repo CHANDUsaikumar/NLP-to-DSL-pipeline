@@ -7,15 +7,40 @@ Validation utilities for field names and indicators.
 from typing import Set, Dict, Tuple
 
 # Allowed base fields from market data
-ALLOWED_FIELDS: Set[str] = {"open", "high", "low", "close", "volume", "date"}
+ALLOWED_FIELDS: Set[str] = {"open", "high", "low", "close", "volume"}
+
+# Centralized valid series/functions for DSL/Parser/Codegen
+VALID_SERIES: Set[str] = {"open", "high", "low", "close", "volume"}
+VALID_FUNCS: Set[str] = {
+    "SMA",
+    "RSI",
+    "SHIFT",
+    "EMA",
+    "MACD",
+    "BBANDS",
+    "BBUPPER",
+    "BBLOWER",
+    "MACD_SIGNAL",
+    "MACD_HIST",
+    "CROSSOVER",
+    "CROSSUNDER",
+}
 
 # Indicator allowed arities (number of arguments). Some indicators accept 1 or 2 args.
 # For example: SMA(series, window) or SMA(window) depending on pipeline; we treat as 1|2.
 ALLOWED_INDICATORS: Dict[str, Tuple[int, ...]] = {
-    "sma": (1, 2),
-    "ema": (1, 2),
-    "rsi": (1, 2),
+    "sma": (2,),
+    "ema": (2,),
+    "rsi": (2,),
     "shift": (2,),
+    "macd": (1, 2, 3, 4),
+    "bbands": (1, 2, 3),
+    "bbupper": (1, 2, 3),
+    "bblower": (1, 2, 3),
+    "macd_signal": (1, 2, 3, 4),
+    "macd_hist": (1, 2, 3, 4),
+    "crossover": (2,),
+    "crossunder": (2,),
 }
 
 
@@ -38,10 +63,8 @@ def validate_indicator(name: str, argc: int) -> None:
     """
     Validate an indicator name and argument count.
 
-    Allowed indicators:
-      - sma: accepts 1 or 2 args (series, window)
-      - ema: accepts 1 or 2 args
-      - rsi: accepts 1 or 2 args
+        Allowed indicators include SMA, EMA, RSI, SHIFT, MACD, BBANDS, BBUPPER/BBLOWER,
+        MACD_SIGNAL, MACD_HIST, CROSSOVER, CROSSUNDER with their respective arities.
 
     Raises ValueError with an informative message on failure.
     """

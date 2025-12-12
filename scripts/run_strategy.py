@@ -35,8 +35,14 @@ def main():
 
     parser = argparse.ArgumentParser(description="Run NL→DSL→backtest on a CSV dataset")
     parser.add_argument('--csv', required=True, help='Path to CSV with columns: date(optional), open, high, low, close, volume')
-    parser.add_argument('--nl', required=True, help='Natural language strategy description')
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument('--nl', help='Natural language strategy description')
+    group.add_argument('--dsl', help='Direct DSL string (bypasses NL parsing)')
     parser.add_argument('--position-size', type=float, default=1.0, help='Position size multiplier (default: 1.0)')
+    parser.add_argument('--slippage-bps', type=float, default=0.0, help='Slippage in basis points applied to entry/exit (default: 0)')
+    parser.add_argument('--fee', type=float, default=0.0, help='Flat fee per trade in currency units (default: 0)')
+    parser.add_argument('--export-signals', help='Path to export signals CSV (optional)')
+    parser.add_argument("--mark-to-market", help="Update equity each bar while in position for more granular drawdown/Sharpe", action="store_true")
     args = parser.parse_args()
 
     # Load data
@@ -58,19 +64,25 @@ def main():
         print(f"ERROR: CSV is missing required columns: {missing}")
         sys.exit(1)
 
-    # NL → structured → DSL
-    structured = parse_natural_language_to_structured(args.nl)
-    dsl_text = structured_to_dsl(structured)
-    print("=== NL input ===")
-    print(args.nl)
-    print()
-    print("=== Structured JSON ===")
-    import json
-    print(json.dumps(structured, indent=2))
-    print()
-    print("=== DSL ===")
-    print(dsl_text)
-    print()
+    # NL → structured → DSL or direct DSL
+    if args.dsl:
+        dsl_text = args.dsl
+        print("=== DSL (provided) ===")
+        print(dsl_text)
+        print()
+    else:
+        structured = parse_natural_language_to_structured(args.nl)
+        dsl_text = structured_to_dsl(structured)
+        print("=== NL input ===")
+        print(args.nl)
+        print()
+        print("=== Structured JSON ===")
+        import json
+        print(json.dumps(structured, indent=2))
+        print()
+        print("=== DSL ===")
+        print(dsl_text)
+        print()
 
     # DSL → AST
     try:
@@ -81,17 +93,31 @@ def main():
 
     # AST → signals → backtest
     signals = generate_signals(strategy, df)
-    trades, stats = run_backtest(df, signals, position_size=args.position_size)
+    trades, stats = run_backtest(
+        df,
+        signals,
+        position_size=args.position_size,
+        slippage_bps=args.slippage_bps,
+        fee_per_trade=args.fee,
+        mark_to_market=args.mark_to_market,
+    )
 
     # Report
     print("=== Backtest Metrics ===")
     print(f"Total Return: {stats.get('total_return_pct', 0.0):.2f}%")
     print(f"Max Drawdown: {stats.get('max_drawdown_pct', 0.0):.2f}%")
     print(f"Trades: {stats.get('num_trades', 0)}")
+    print(f"Sharpe: {stats.get('sharpe', 0.0):.2f}")
     if trades:
         print("=== Trades ===")
         for t in trades:
             print(f"Enter {t.entry_date} @ {t.entry_price:.2f} | Exit {t.exit_date} @ {t.exit_price:.2f} | PnL {t.pnl:.2f} ({t.return_pct*100:.2f}%)")
+
+    # Optional export of signals
+    if args.export_signals:
+        out = pd.DataFrame({"entry": signals["entry"].astype(int), "exit": signals["exit"].astype(int)}, index=df.index)
+        out.to_csv(args.export_signals)
+        print(f"Signals exported to {args.export_signals}")
 
 
 if __name__ == '__main__':

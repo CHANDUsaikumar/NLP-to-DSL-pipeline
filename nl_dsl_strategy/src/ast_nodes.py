@@ -5,7 +5,7 @@ AST node definitions for the trading strategy DSL.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List
+from typing import List, Union
 
 
 class ASTNode:
@@ -87,3 +87,5 @@ class FuncCall(ASTNode):
     """
     name: str
     args: List[ASTNode]
+
+ASTChild = Union[Strategy, BinaryOp, UnaryOp, Literal, SeriesRef, FuncCall]

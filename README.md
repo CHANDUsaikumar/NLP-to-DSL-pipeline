@@ -1,4 +1,32 @@
 # NL → DSL Strategy Demo
+## Quickstart (concise)
+
+Setup
+```zsh
+python -m venv .venv
+source .venv/bin/activate
+pip install -r nl_dsl_strategy/requirements.txt
+```
+
+Run demo
+```zsh
+python nl_dsl_strategy/src/demo.py
+```
+
+Run tests
+```zsh
+pytest -q
+```
+
+CLI example (NL and DSL)
+```zsh
+# Natural language
+python scripts/run_strategy.py --csv scripts/sample_data.csv --nl "Buy when the 20 EMA crosses above the 50 EMA and RSI(14) is below 70" --mark-to-market
+
+# Equivalent DSL (ENTRY and EXIT required)
+python scripts/run_strategy.py --csv scripts/sample_data.csv --dsl "ENTRY: CROSSOVER(EMA(close, 20), EMA(close, 50)) AND RSI(close, 14) < 70 EXIT: FALSE" --mark-to-market
+```
+
 
 This project demonstrates a simple pipeline:
 

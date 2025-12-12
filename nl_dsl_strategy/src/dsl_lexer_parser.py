@@ -6,6 +6,8 @@ This module supports both package and script import contexts by attempting
 relative imports first and falling back to absolute imports when needed.
 """
 
+from __future__ import annotations
+
 import re
 from dataclasses import dataclass
 
@@ -19,7 +21,7 @@ try:  # package import
         SeriesRef,
         FuncCall,
     )
-    from .validator import validate_field_name, validate_indicator
+    from .validator import validate_field_name, validate_indicator, VALID_SERIES, VALID_FUNCS
 except ImportError:  # script import fallback
     from ast_nodes import (  # type: ignore
         Strategy,
@@ -29,12 +31,20 @@ except ImportError:  # script import fallback
         SeriesRef,
         FuncCall,
     )
-    from validator import validate_field_name, validate_indicator  # type: ignore
+    from validator import validate_field_name, validate_indicator, VALID_SERIES, VALID_FUNCS  # type: ignore
 
 
 class DSLParseError(Exception):
-    """Raised when DSL parsing or validation fails."""
-    pass
+    """Raised when DSL parsing or validation fails, with optional position info."""
+
+    def __init__(self, message: str, position: int | None = None, line: int | None = None, col: int | None = None):
+        self.position = position
+        self.line = line
+        self.col = col
+        if line is not None and col is not None:
+            super().__init__(f"{message} (line {line}, col {col})")
+        else:
+            super().__init__(message)
 
 
 # ==============
@@ -42,65 +52,71 @@ class DSLParseError(Exception):
 # ==============
 
 TOKEN_SPEC = [
-    ("NUMBER",   r'\d+(\.\d+)?'),
-    ("TRUE",     r'\bTRUE\b'),
-    ("FALSE",    r'\bFALSE\b'),
-    ("IDENT",    r'[A-Za-z_][A-Za-z0-9_]*'),
-    ("PERCENT",  r'%|percent'),
-    ("DAY",      r'\bday\b'),
-    ("CROSS",    r'\bcross(?:es)?\b'),
-    ("ABOVE",    r'\babove\b'),
-    ("BELOW",    r'\bbelow\b'),
-    ("GE",       r'>='),
-    ("LE",       r'<='),
-    ("EQ",       r'=='),
-    ("NE",       r'!='),
-    ("GT",       r'>'),
-    ("LT",       r'<'),
-    ("LBRACK",   r'\['),
-    ("RBRACK",   r'\]'),
-    ("LPAREN",   r'\('),
-    ("RPAREN",   r'\)'),
-    ("COMMA",    r','),
-    ("COLON",    r':'),
-    ("PLUS",     r'\+'),
-    ("MINUS",    r'-'),
-    ("TIMES",    r'\*'),
-    ("DIV",      r'/'),
-    ("NEWLINE",  r'\n'),
-    ("SKIP",     r'[ \t\r]+'),
-    ("MISMATCH", r'.'),
+    ("NUMBER", r"\d+(\.\d+)?"),
+    ("SUFFIX", r"\b[KkMm]\b"),
+    ("TRUE", r"\bTRUE\b"),
+    ("FALSE", r"\bFALSE\b"),
+    ("IDENT", r"[A-Za-z_][A-Za-z0-9_]*"),
+    ("PERCENT", r"%|percent"),
+    ("DAY", r"\bday\b"),
+    ("CROSS", r"\bcross(?:es)?\b"),
+    ("ABOVE", r"\babove\b"),
+    ("BELOW", r"\bbelow\b"),
+    ("GE", r">="),
+    ("LE", r"<="),
+    ("EQ", r"=="),
+    ("NE", r"!="),
+    ("GT", r">"),
+    ("LT", r"<"),
+    ("LBRACK", r"\["),
+    ("RBRACK", r"\]"),
+    ("LPAREN", r"\("),
+    ("RPAREN", r"\)"),
+    ("COMMA", r","),
+    ("COLON", r":"),
+    ("PLUS", r"\+"),
+    ("MINUS", r"-"),
+    ("TIMES", r"\*"),
+    ("DIV", r"/"),
+    ("NEWLINE", r"\n"),
+    ("SKIP", r"[ \t\r]+"),
+    ("MISMATCH", r"."),
 ]
 
-TOK_REGEX = '|'.join('(?P<%s>%s)' % pair for pair in TOKEN_SPEC)
+TOK_REGEX = "|".join("(?P<%s>%s)" % pair for pair in TOKEN_SPEC)
 
 
 @dataclass
 class Token:
     type: str
     value: str
+    line: int | None = None
+    col: int | None = None
 
 
 def tokenize(code: str):
-    """
-    Convert DSL text into a list of tokens.
-
-    Identifiers are uppercased to make keywords case-insensitive.
-    """
-    tokens = []
+    """Convert DSL text into a list of tokens; identifiers are uppercased."""
+    tokens: list[Token] = []
     for mo in re.finditer(TOK_REGEX, code):
         kind = mo.lastgroup
         value = mo.group()
+        start = mo.start()
+        # compute line/col
+        line = code.count("\n", 0, start) + 1
+        last_newline = code.rfind("\n", 0, start)
+        col = (start - last_newline) if last_newline != -1 else (start + 1)
         if kind == "NUMBER":
-            tokens.append(Token("NUMBER", value))
+            tokens.append(Token("NUMBER", value, line=line, col=col))
         elif kind == "IDENT":
-            tokens.append(Token("IDENT", value.upper()))
+            tokens.append(Token("IDENT", value.upper(), line=line, col=col))
+        elif kind == "SUFFIX":
+            tokens.append(Token("SUFFIX", value.upper(), line=line, col=col))
         elif kind in ("NEWLINE", "SKIP"):
             continue
         elif kind == "MISMATCH":
-            raise DSLParseError(f"Unexpected character: {value!r}")
+            raise DSLParseError(f"Unexpected character: {value!r}", position=start, line=line, col=col)
         else:
-            tokens.append(Token(kind, value))
+            tokens.append(Token(kind, value, line=line, col=col))
     return tokens
 
 
@@ -109,40 +125,70 @@ def tokenize(code: str):
 # ==============
 
 class Parser:
-    """
-    Recursive descent parser.
-    """
+    """Recursive descent parser."""
 
-    def __init__(self, tokens):
+    def __init__(self, tokens: list[Token], source_text: str | None = None):
         self.tokens = tokens
         self.pos = 0
+        self.source_text = source_text or ""
 
-    def peek(self):
+    def peek(self) -> Token | None:
         if self.pos < len(self.tokens):
             return self.tokens[self.pos]
         return None
 
-    def advance(self):
+    def advance(self) -> Token:
         tok = self.peek()
         if tok is None:
-            raise DSLParseError("Unexpected end of input")
+            snippet = self._snippet()
+            raise DSLParseError(f"Unexpected end of input. Near: {snippet}")
         self.pos += 1
         return tok
 
-    def expect(self, type_, value=None):
+    def expect(self, type_: str, value: str | None = None) -> Token:
         tok = self.peek()
         if tok is None:
-            raise DSLParseError(f"Expected {type_} but got EOF")
+            snippet = self._snippet()
+            raise DSLParseError(f"Expected {type_} but got EOF. Near: {snippet}")
         if tok.type != type_:
-            raise DSLParseError(f"Expected {type_} but got {tok.type}")
+            ctx = []
+            for i in range(self.pos, min(self.pos + 5, len(self.tokens))):
+                t = self.tokens[i]
+                ctx.append(f"{t.type}:{t.value}")
+            snippet = self._snippet()
+            loc = f" (line {tok.line}, col {tok.col})" if tok.line is not None and tok.col is not None else ""
+            raise DSLParseError(
+                f"Expected {type_} but got {tok.type} ({tok.value}){loc}. Context: {' '.join(ctx)}. Near: {snippet}"
+            )
         if value is not None and tok.value != value:
-            raise DSLParseError(f"Expected {value} but got {tok.value}")
+            ctx = []
+            for i in range(self.pos, min(self.pos + 5, len(self.tokens))):
+                t = self.tokens[i]
+                ctx.append(f"{t.type}:{t.value}")
+            snippet = self._snippet()
+            loc = f" (line {tok.line}, col {tok.col})" if tok.line is not None and tok.col is not None else ""
+            raise DSLParseError(
+                f"Expected {value} but got {tok.value}{loc}. Context: {' '.join(ctx)}. Near: {snippet}"
+            )
         self.pos += 1
         return tok
+
+    def _snippet(self, radius: int = 20) -> str:
+        """Return a small slice of source text around an estimated position based on tokens consumed."""
+        if not self.source_text:
+            return "(no snippet)"
+        try:
+            approx = sum(len(t.value) for t in self.tokens[: self.pos])
+            start = max(0, approx - radius)
+            end = min(len(self.source_text), approx + radius)
+            snip = self.source_text[start:end].replace("\n", " ")
+            return f"...{snip}..."
+        except Exception:
+            return "(no snippet)"
 
     # --- entry point ---
 
-    def parse_strategy(self):
+    def parse_strategy(self) -> Strategy:
         self.expect("IDENT", "ENTRY")
         self.expect("COLON")
         entry_expr = self.parse_bool_expr()
@@ -256,6 +302,13 @@ class Parser:
 
         if tok.type == "NUMBER":
             self.advance()
+            # support numeric suffixes like 1M, 2K
+            nxt = self.peek()
+            if nxt and nxt.type == "SUFFIX":
+                self.advance()
+                base = float(tok.value)
+                mul = 1_000_000.0 if nxt.value.upper() == "M" else 1_000.0
+                return Literal(value=base * mul)
             return Literal(value=float(tok.value))
 
         if tok.type == "TRUE":
@@ -281,11 +334,19 @@ class Parser:
                         self.advance()
                         args.append(self.parse_bool_expr())
                 self.expect("RPAREN")
-                # Validate indicator name and arity (number of args)
+                # Validate indicator name and arity (number of args), with suggestion
                 try:
                     validate_indicator(ident.lower(), len(args))
                 except ValueError as e:
-                    raise DSLParseError(str(e))
+                    # Suggest closest function name
+                    try:
+                        valid = VALID_FUNCS
+                        import difflib
+                        suggestion = difflib.get_close_matches(ident, list(valid), n=1)
+                        if suggestion:
+                            raise DSLParseError(f"{str(e)}. Did you mean {suggestion[0]}?")
+                    except Exception:
+                        raise DSLParseError(str(e))
                 return FuncCall(name=ident, args=args)
 
             # series reference IDENT[NUMBER]?
@@ -301,7 +362,14 @@ class Parser:
             try:
                 validate_field_name(series_name)
             except ValueError as e:
-                raise DSLParseError(str(e))
+                # Suggest closest series name
+                try:
+                    import difflib
+                    suggestion = difflib.get_close_matches(series_name, list(VALID_SERIES), n=1)
+                    if suggestion:
+                        raise DSLParseError(f"{str(e)}. Did you mean {suggestion[0]}?")
+                except Exception:
+                    raise DSLParseError(str(e))
             return SeriesRef(name=series_name, lag=lag)
 
         if tok.type == "LPAREN":
@@ -317,14 +385,11 @@ class Parser:
 # Validation & public API
 # ==============
 
-VALID_SERIES = {"open", "high", "low", "close", "volume"}
-VALID_FUNCS = {"SMA", "RSI", "SHIFT", "EMA"}
+# Use centralized sets from validator
 
 
 def validate_strategy(strategy: Strategy):
-    """
-    Validate that all series and functions are known.
-    """
+    """Validate that all series and functions are known."""
 
     def walk(node):
         if isinstance(node, BinaryOp):
@@ -352,11 +417,9 @@ def validate_strategy(strategy: Strategy):
 
 
 def parse_dsl(dsl_text: str) -> Strategy:
-    """
-    Parse DSL text into a Strategy AST and validate it.
-    """
+    """Parse DSL text into a Strategy AST and validate it."""
     tokens = tokenize(dsl_text)
-    parser = Parser(tokens)
+    parser = Parser(tokens, source_text=dsl_text)
     strategy = parser.parse_strategy()
     validate_strategy(strategy)
     return strategy

@@ -25,7 +25,7 @@ try:
         UnaryOp,
         BinaryOp,
     )
-    from .indicators import sma, ema, rsi
+    from .indicators import sma, ema, rsi, macd, bbands, bbupper, bblower, macd_signal, macd_hist
 except ImportError:  # script mode
     from ast_nodes import (  # type: ignore
         ASTNode,
@@ -36,7 +36,7 @@ except ImportError:  # script mode
         UnaryOp,
         BinaryOp,
     )
-    from indicators import sma, ema, rsi  # type: ignore
+    from indicators import sma, ema, rsi, macd, bbands, bbupper, bblower, macd_signal, macd_hist  # type: ignore
 
 
 def eval_ast(node: ASTNode, df: pd.DataFrame) -> Union[pd.Series, float, bool]:
@@ -83,7 +83,7 @@ def eval_ast(node: ASTNode, df: pd.DataFrame) -> Union[pd.Series, float, bool]:
             # If validator isn't available (script mode), continue
             pass
 
-        if func_name in ("SMA", "EMA", "RSI", "SHIFT"):
+        if func_name in ("SMA", "EMA", "RSI", "SHIFT", "MACD", "BBANDS", "BBUPPER", "BBLOWER", "MACD_SIGNAL", "MACD_HIST", "CROSSOVER", "CROSSUNDER"):
             pass  # placeholder to keep grouping nearby
         
         if func_name == "SMA":
@@ -117,6 +117,87 @@ def eval_ast(node: ASTNode, df: pd.DataFrame) -> Union[pd.Series, float, bool]:
             if not isinstance(series, pd.Series):
                 raise TypeError("SHIFT first argument must be a Series")
             return series.shift(lag)
+
+        if func_name == "MACD":
+            # MACD(series, fast=12, slow=26, signal=9) → returns macd_line
+            # To use signal or histogram, users can construct via auxiliary functions in future.
+            # For now, expose the macd line directly when called.
+            if len(args) < 1 or len(args) > 4:
+                raise ValueError("MACD(series, fast=12, slow=26, signal=9) expects 1-4 arguments")
+            series = args[0]
+            if not isinstance(series, pd.Series):
+                raise TypeError("MACD first argument must be a Series")
+            fast = int(args[1]) if len(args) >= 2 else 12
+            slow = int(args[2]) if len(args) >= 3 else 26
+            signal = int(args[3]) if len(args) >= 4 else 9
+            macd_line, _signal_line, _hist = macd(series, fast=fast, slow=slow, signal=signal)
+            return macd_line
+
+        if func_name == "BBANDS":
+            # BBANDS(series, period=20, std=2.0) → returns middle band for direct comparisons
+            # To use upper/lower explicitly, add functions BBUPPER/BBLOWER in future.
+            if len(args) < 1 or len(args) > 3:
+                raise ValueError("BBANDS(series, period=20, std=2.0) expects 1-3 arguments")
+            series = args[0]
+            if not isinstance(series, pd.Series):
+                raise TypeError("BBANDS first argument must be a Series")
+            period = int(args[1]) if len(args) >= 2 else 20
+            std = float(args[2]) if len(args) >= 3 else 2.0
+            _upper, middle, _lower = bbands(series, period=period, std=std)
+            return middle
+
+        if func_name == "BBUPPER":
+            if len(args) < 1 or len(args) > 3:
+                raise ValueError("BBUPPER(series, period=20, std=2.0) expects 1-3 arguments")
+            series = args[0]
+            if not isinstance(series, pd.Series):
+                raise TypeError("BBUPPER first argument must be a Series")
+            period = int(args[1]) if len(args) >= 2 else 20
+            std = float(args[2]) if len(args) >= 3 else 2.0
+            return bbupper(series, period=period, std=std)
+
+        if func_name == "BBLOWER":
+            if len(args) < 1 or len(args) > 3:
+                raise ValueError("BBLOWER(series, period=20, std=2.0) expects 1-3 arguments")
+            series = args[0]
+            if not isinstance(series, pd.Series):
+                raise TypeError("BBLOWER first argument must be a Series")
+            period = int(args[1]) if len(args) >= 2 else 20
+            std = float(args[2]) if len(args) >= 3 else 2.0
+            return bblower(series, period=period, std=std)
+
+        if func_name == "MACD_SIGNAL":
+            if len(args) < 1 or len(args) > 4:
+                raise ValueError("MACD_SIGNAL(series, fast=12, slow=26, signal=9) expects 1-4 arguments")
+            series = args[0]
+            if not isinstance(series, pd.Series):
+                raise TypeError("MACD_SIGNAL first argument must be a Series")
+            fast = int(args[1]) if len(args) >= 2 else 12
+            slow = int(args[2]) if len(args) >= 3 else 26
+            signal = int(args[3]) if len(args) >= 4 else 9
+            return macd_signal(series, fast=fast, slow=slow, signal=signal)
+
+        if func_name == "MACD_HIST":
+            if len(args) < 1 or len(args) > 4:
+                raise ValueError("MACD_HIST(series, fast=12, slow=26, signal=9) expects 1-4 arguments")
+            series = args[0]
+            if not isinstance(series, pd.Series):
+                raise TypeError("MACD_HIST first argument must be a Series")
+            fast = int(args[1]) if len(args) >= 2 else 12
+            slow = int(args[2]) if len(args) >= 3 else 26
+            signal = int(args[3]) if len(args) >= 4 else 9
+            return macd_hist(series, fast=fast, slow=slow, signal=signal)
+
+        if func_name in ("CROSSOVER", "CROSSUNDER"):
+            if len(args) != 2:
+                raise ValueError(f"{func_name}(seriesA, seriesB) expects 2 arguments")
+            left, right = args
+            if not isinstance(left, pd.Series) or not isinstance(right, pd.Series):
+                raise TypeError(f"{func_name} operands must be pandas Series")
+            if func_name == "CROSSOVER":
+                return (left > right) & (left.shift(1) <= right.shift(1))
+            else:
+                return (left < right) & (left.shift(1) >= right.shift(1))
         
         # If we get here, the function name wasn't recognized above
         raise ValueError(f"Unknown function: {func_name}")
@@ -145,8 +226,14 @@ def eval_ast(node: ASTNode, df: pd.DataFrame) -> Union[pd.Series, float, bool]:
             left = eval_ast(node.left, df)
             right = eval_ast(node.right, df)
 
+            # Optional scalar broadcasting for convenience
+            if isinstance(left, bool):
+                left = pd.Series([left] * len(df), index=df.index)
+            if isinstance(right, bool):
+                right = pd.Series([right] * len(df), index=df.index)
+
             if not isinstance(left, pd.Series) or not isinstance(right, pd.Series):
-                raise TypeError("AND/OR operands must be pandas Series")
+                raise TypeError("AND/OR operands must be pandas Series or booleans")
 
             if op == "AND":
                 return left & right

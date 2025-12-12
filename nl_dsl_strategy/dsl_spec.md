@@ -48,11 +48,29 @@ Notes:
 - Logic: `AND`, `OR`, `NOT`
 
 Precedence (highest → lowest):
-1. NOT
-2. AND
-3. OR
+1. Parentheses `(...)`
+2. Arithmetic `*` `/` then `+` `-`
+3. Comparisons `>` `>=` `<` `<=` `==` `!=`
+4. NOT
+5. AND
+6. OR
 
 Arithmetic and comparisons are evaluated before logical operators. Use parentheses to override.
+
+One-line BNF (informal):
+
+```
+program   := "ENTRY:" bool_expr "\n" "EXIT:" bool_expr
+bool_expr := or_expr
+or_expr   := and_expr { "OR" and_expr }
+and_expr  := not_expr { "AND" not_expr }
+not_expr  := [ "NOT" ] comparison
+comparison:= arith { ("<"|"<="|">"|">="|"=="|"!=") arith | ("CROSSOVER"|"CROSSUNDER") arith }
+arith     := term { ("+"|"-") term }
+term      := factor { ("*"|"/") factor }
+factor    := NUMBER [SUFFIX] | TRUE | FALSE | IDENT [ "[" NUMBER "]" ] | IDENT "(" args ")" | "(" bool_expr ")"
+args      := [ bool_expr { "," bool_expr } ]
+```
 
 ## Examples
 
